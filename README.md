@@ -169,3 +169,943 @@ with `genreId`. What felt most different is that the database itself now enforce
 with a genre that does not exist, and `include: { genre: true }` returns the joined data with full types. The
 trade-off is that I have to think about relationships and run migrations before I can write data, whereas a
 document database lets me change the shape of documents as I go.
+
+<!-- CODE-LISTING-START -->
+## Source code listing
+
+The working code lives in the api folder. The key files are repeated below so they can be read from this page without opening each folder. The file docs/postman_collection.json has a request for every endpoint.
+
+### Week 2: Book API, auth and authorization
+
+#### api/src/genres/genres.controller.ts
+
+```ts
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import { CreateGenreDto } from './dto/create-genre.dto';
+import { UpdateGenreDto } from './dto/update-genre.dto';
+import { GenresService } from './genres.service';
+
+@Controller('genres')
+export class GenresController {
+  constructor(private readonly genresService: GenresService) {}
+
+  // Anyone can read genres. Only librarians can change them.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Post()
+  create(@Body() dto: CreateGenreDto) {
+    return this.genresService.create(dto);
+  }
+
+  @Get()
+  findAll() {
+    return this.genresService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.genresService.findOne(id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateGenreDto) {
+    return this.genresService.update(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.genresService.remove(id);
+  }
+}
+```
+
+#### api/src/genres/genres.service.ts
+
+```ts
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateGenreDto } from './dto/create-genre.dto';
+import { UpdateGenreDto } from './dto/update-genre.dto';
+
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+@Injectable()
+export class GenresService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(dto: CreateGenreDto) {
+    try {
+      return await this.prisma.genre.create({
+        data: { name: dto.name, slug: dto.slug ?? slugify(dto.name), description: dto.description },
+      });
+    } catch (error) {
+      throw this.translate(error);
+    }
+  }
+
+  findAll() {
+    return this.prisma.genre.findMany({
+      orderBy: { name: 'asc' },
+      include: { _count: { select: { books: true } } },
+    });
+  }
+
+  async findOne(id: number) {
+    const genre = await this.prisma.genre.findUnique({
+      where: { id },
+      include: { books: { orderBy: { title: 'asc' } } },
+    });
+    if (!genre) throw new NotFoundException(`Genre ${id} not found`);
+    return genre;
+  }
+
+  async update(id: number, dto: UpdateGenreDto) {
+    await this.findOne(id);
+    const data: Prisma.GenreUpdateInput = { ...dto };
+    // Renaming without sending a slug keeps the old slug on purpose, so existing links do not break.
+    try {
+      return await this.prisma.genre.update({ where: { id }, data });
+    } catch (error) {
+      throw this.translate(error);
+    }
+  }
+
+  async remove(id: number) {
+    await this.findOne(id);
+    try {
+      return await this.prisma.genre.delete({ where: { id } });
+    } catch (error) {
+      throw this.translate(error);
+    }
+  }
+
+  // Turns Prisma's database errors into proper HTTP errors.
+  private translate(error: unknown): unknown {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') return new ConflictException('A genre with that name or slug already exists');
+      if (error.code === 'P2003') return new ConflictException('This genre still has books. Move or delete them first');
+    }
+    return error;
+  }
+}
+```
+
+#### api/src/genres/genres.module.ts
+
+```ts
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { GenresController } from './genres.controller';
+import { GenresService } from './genres.service';
+
+@Module({
+  imports: [AuthModule],
+  controllers: [GenresController],
+  providers: [GenresService],
+  exports: [GenresService],
+})
+export class GenresModule {}
+```
+
+#### api/src/genres/dto/create-genre.dto.ts
+
+```ts
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+
+export class CreateGenreDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  name!: string;
+
+  // Optional. If it is left out, the service builds it from the name ("Science Fiction" -> "science-fiction").
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, { message: 'slug must be lowercase letters, numbers and hyphens' })
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+}
+```
+
+#### api/src/genres/dto/update-genre.dto.ts
+
+```ts
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateGenreDto } from './create-genre.dto';
+
+// Every field of CreateGenreDto becomes optional, and keeps its validators.
+export class UpdateGenreDto extends PartialType(CreateGenreDto) {}
+```
+
+#### api/src/books/dto/create-book.dto.ts
+
+```ts
+import { IsInt, IsISBN, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+
+export class CreateBookDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  title!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  author!: string;
+
+  // A valid ISBN-10 or ISBN-13. Hyphens are allowed.
+  @IsISBN()
+  isbn!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  totalCopies!: number;
+
+  // Must be the id of an existing genre. The service checks that it exists.
+  @IsInt()
+  @Min(1)
+  genreId!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  description?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2100)
+  publishedYear?: number;
+}
+```
+
+#### api/src/books/dto/update-book.dto.ts
+
+```ts
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateBookDto } from './create-book.dto';
+
+// Every field of CreateBookDto becomes optional, and keeps its validators.
+export class UpdateBookDto extends PartialType(CreateBookDto) {}
+```
+
+#### api/src/books/books.controller.ts
+
+```ts
+import {
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { Role } from '@prisma/client';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import { BooksService } from './books.service';
+import { CreateBookDto } from './dto/create-book.dto';
+import { UpdateBookDto } from './dto/update-book.dto';
+
+@Controller('books')
+export class BooksController {
+  constructor(private readonly booksService: BooksService) {}
+
+  // Public: GET /books?genreId=2&search=dune&page=1&limit=10
+  @Get()
+  findAll(
+    @Query('genreId', new ParseIntPipe({ optional: true })) genreId?: number,
+    @Query('search') search?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit?: number,
+  ) {
+    return this.booksService.findAll({ genreId, search, page, limit });
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.booksService.findOne(id);
+  }
+
+  // POST, PATCH and DELETE are guarded: a valid JWT, and the LIBRARIAN role.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Post()
+  create(@Body() dto: CreateBookDto) {
+    return this.booksService.create(dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBookDto) {
+    return this.booksService.update(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.LIBRARIAN)
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.booksService.remove(id);
+  }
+}
+```
+
+#### api/src/books/books.service.ts
+
+```ts
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateBookDto } from './dto/create-book.dto';
+import { UpdateBookDto } from './dto/update-book.dto';
+
+@Injectable()
+export class BooksService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(dto: CreateBookDto) {
+    await this.assertGenreExists(dto.genreId);
+    const { totalCopies, ...rest } = dto;
+    try {
+      return await this.prisma.book.create({
+        // A new book starts with every copy available.
+        data: { ...rest, totalCopies, availableCopies: totalCopies },
+        include: { genre: true },
+      });
+    } catch (error) {
+      throw this.translate(error);
+    }
+  }
+
+  // GET /books?genreId=&search=&page=&limit=
+  async findAll(params: { genreId?: number; search?: string; page?: number; limit?: number }) {
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 10));
+
+    // Build the Prisma where clause from the optional filters.
+    const where: Prisma.BookWhereInput = {};
+    if (params.genreId !== undefined) {
+      where.genreId = params.genreId;
+    }
+    const search = params.search?.trim();
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { author: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // skip/take do the pagination. count() uses the same where, so the total matches the filter.
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.book.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [{ title: 'asc' }, { id: 'asc' }],
+        include: { genre: true },
+      }),
+      this.prisma.book.count({ where }),
+    ]);
+
+    return { data, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
+  }
+
+  async findOne(id: number) {
+    const book = await this.prisma.book.findUnique({ where: { id }, include: { genre: true } });
+    if (!book) throw new NotFoundException(`Book ${id} not found`);
+    return book;
+  }
+
+  async update(id: number, dto: UpdateBookDto) {
+    const book = await this.findOne(id);
+    if (dto.genreId !== undefined) await this.assertGenreExists(dto.genreId);
+
+    const data: Prisma.BookUncheckedUpdateInput = { ...dto };
+    if (dto.totalCopies !== undefined) {
+      // Keep the number of borrowed copies the same when the total changes.
+      const borrowed = book.totalCopies - book.availableCopies;
+      data.availableCopies = Math.max(0, dto.totalCopies - borrowed);
+    }
+    try {
+      return await this.prisma.book.update({ where: { id }, data, include: { genre: true } });
+    } catch (error) {
+      throw this.translate(error);
+    }
+  }
+
+  async remove(id: number) {
+    await this.findOne(id);
+    return this.prisma.book.delete({ where: { id } });
+  }
+
+  private async assertGenreExists(genreId: number) {
+    const genre = await this.prisma.genre.findUnique({ where: { id: genreId } });
+    if (!genre) throw new NotFoundException(`Genre ${genreId} does not exist`);
+  }
+
+  private translate(error: unknown): unknown {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return new ConflictException('A book with that ISBN, or that title and author, already exists');
+    }
+    return error;
+  }
+}
+```
+
+#### api/src/books/books.module.ts
+
+```ts
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { BooksController } from './books.controller';
+import { BooksService } from './books.service';
+
+@Module({
+  imports: [AuthModule],
+  controllers: [BooksController],
+  providers: [BooksService],
+  exports: [BooksService],
+})
+export class BooksModule {}
+```
+
+#### api/src/auth/auth.controller.ts
+
+```ts
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { AuthService } from './auth.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  // Stretch: rate-limit the login route with @nestjs/throttler (5 attempts per minute per IP).
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('login')
+  login(@Body() dto: LoginDto) {
+    return this.authService.login(dto);
+  }
+}
+```
+
+#### api/src/auth/auth.service.ts
+
+```ts
+import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+
+const SALT_ROUNDS = 10;
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  async register(dto: RegisterDto) {
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('That email is already registered');
+
+    // The password is hashed with bcrypt before it is saved. The plain text is never stored.
+    const password = await bcrypt.hash(dto.password, SALT_ROUNDS);
+
+    // New accounts are always PATRON (the schema default). Only a librarian
+    // can be created by editing the database or the seed script.
+    const user = await this.prisma.user.create({
+      data: { email, password, name: dto.name },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+    return user;
+  }
+
+  async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
+
+    // Same message for "no such user" and "wrong password" so the API does not
+    // reveal which emails are registered.
+    const passwordOk = user ? await bcrypt.compare(dto.password, user.password) : false;
+    if (!user || !passwordOk) throw new UnauthorizedException('Invalid email or password');
+
+    const payload = { sub: user.id, email: user.email, role: user.role };
+    return {
+      access_token: await this.jwt.signAsync(payload),
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    };
+  }
+}
+```
+
+#### api/src/auth/auth.module.ts
+
+```ts
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { PassportModule } from '@nestjs/passport';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtStrategy } from './jwt.strategy';
+import { RolesGuard } from './roles.guard';
+
+@Module({
+  imports: [
+    ConfigModule,
+    PassportModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
+        signOptions: { expiresIn: '1h' },
+      }),
+    }),
+    // Stretch: the limits themselves are set per route with @Throttle().
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  exports: [JwtAuthGuard, RolesGuard],
+})
+export class AuthModule {}
+```
+
+#### api/src/auth/dto/register.dto.ts
+
+```ts
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+
+export class RegisterDto {
+  @IsEmail()
+  email!: string;
+
+  // bcrypt only uses the first 72 bytes, so cap the length.
+  @IsString()
+  @MinLength(8)
+  @MaxLength(72)
+  password!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  // There is deliberately no `role` field. With whitelist: true the ValidationPipe
+  // strips it from the body, so nobody can register themselves as a LIBRARIAN.
+}
+```
+
+#### api/src/auth/dto/login.dto.ts
+
+```ts
+import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+
+export class LoginDto {
+  @IsEmail()
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(72)
+  password!: string;
+}
+```
+
+#### api/src/auth/jwt.strategy.ts
+
+```ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PrismaService } from '../prisma/prisma.service';
+
+export interface JwtPayload {
+  sub: number;
+  email: string;
+  role: string;
+}
+
+// Verifies the Bearer token on every protected request, using the JWT_SECRET from .env.
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: config.getOrThrow<string>('JWT_SECRET'),
+    });
+  }
+
+  // Whatever this returns becomes req.user. We reload the user so a deleted account
+  // stops working immediately and the role is always the current one from the database.
+  async validate(payload: JwtPayload) {
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) throw new UnauthorizedException();
+    return { userId: user.id, email: user.email, role: user.role };
+  }
+}
+```
+
+#### api/src/auth/jwt-auth.guard.ts
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+// Use as @UseGuards(JwtAuthGuard): rejects the request with 401 unless it carries a valid JWT.
+@Injectable()
+export class JwtAuthGuard extends AuthGuard('jwt') {}
+```
+
+#### api/src/auth/roles.decorator.ts
+
+```ts
+import { SetMetadata } from '@nestjs/common';
+import { Role } from '@prisma/client';
+
+export const ROLES_KEY = 'roles';
+
+// Marks a route with the roles allowed to call it, e.g. @Roles(Role.LIBRARIAN).
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+#### api/src/auth/roles.guard.ts
+
+```ts
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Role } from '@prisma/client';
+import { ROLES_KEY } from './roles.decorator';
+
+// Runs after JwtAuthGuard. Compares req.user.role with the roles named by @Roles().
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const required = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    // A route without @Roles() is open to any authenticated user.
+    if (!required || required.length === 0) return true;
+
+    const req = context.switchToHttp().getRequest();
+    if (!req.user || !required.includes(req.user.role)) {
+      throw new ForbiddenException('You do not have permission to do that');
+    }
+    return true;
+  }
+}
+```
+
+#### api/src/users/users.controller.ts
+
+```ts
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UsersService } from './users.service';
+
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  // Stretch: GET /users/profile reads the authenticated user from the request with @Req().
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  getProfile(@Req() req: { user: { userId: number } }) {
+    return this.usersService.findProfile(req.user.userId);
+  }
+}
+```
+
+#### api/src/users/users.service.ts
+
+```ts
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+@Injectable()
+export class UsersService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  // `select` leaves the password hash out of the result.
+  async findProfile(id: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, name: true, role: true, createdAt: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+}
+```
+
+#### api/src/users/users.module.ts
+
+```ts
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
+import { UsersController } from './users.controller';
+import { UsersService } from './users.service';
+
+@Module({
+  imports: [AuthModule],
+  controllers: [UsersController],
+  providers: [UsersService],
+})
+export class UsersModule {}
+```
+
+#### api/src/app.module.ts
+
+```ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { BooksModule } from './books/books.module';
+import { GenresModule } from './genres/genres.module';
+import { PrismaModule } from './prisma/prisma.module';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [
+    // Loads api/.env into the environment (JWT_SECRET, DATABASE_URL) for the whole app.
+    ConfigModule.forRoot({ isGlobal: true }),
+    PrismaModule,
+    AuthModule,
+    GenresModule,
+    BooksModule,
+    UsersModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+#### api/src/main.ts
+
+```ts
+import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+
+  // whitelist: true strips any property that is not declared on the DTO.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  app.enableCors();
+
+  await app.listen(process.env.PORT ?? 3000);
+}
+void bootstrap();
+```
+
+### Week 1: data layer
+
+#### api/prisma/schema.prisma
+
+```prisma
+// Library Management System: data model
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PATRON
+  LIBRARIAN
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  // bcrypt hash, never the plain password.
+  password  String
+  role      Role     @default(PATRON)
+  createdAt DateTime @default(now())
+
+  reviews Review[]
+}
+
+model Genre {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  // URL-friendly version of the name, e.g. "science-fiction".
+  slug        String  @unique
+  description String?
+
+  books Book[]
+}
+
+model Book {
+  id              Int      @id @default(autoincrement())
+  title           String
+  author          String
+  isbn            String   @unique
+  description     String?
+  publishedYear   Int?
+  totalCopies     Int      @default(1)
+  availableCopies Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  // Each book belongs to exactly one genre, stored as a foreign key.
+  genreId Int
+  genre   Genre @relation(fields: [genreId], references: [id])
+
+  reviews Review[]
+
+  @@unique([title, author])
+  @@index([genreId])
+}
+
+// Stretch: a patron's rating and comment on a book.
+model Review {
+  id        Int      @id @default(autoincrement())
+  rating    Int // 1 to 5, checked in application code
+  comment   String?
+  createdAt DateTime @default(now())
+
+  bookId Int
+  book   Book @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One review per user per book.
+  @@unique([bookId, userId])
+  @@index([userId])
+}
+```
+
+#### api/src/prisma/prisma.service.ts
+
+```ts
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+/**
+ * A single shared Prisma client for the whole app.
+ * It connects when Nest starts the module and disconnects on shutdown.
+ */
+@Injectable()
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  async onModuleInit(): Promise<void> {
+    await this.$connect();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.$disconnect();
+  }
+}
+```
+
+#### api/src/prisma/prisma.module.ts
+
+```ts
+import { Global, Module } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+
+/**
+ * Global module: any feature module can inject PrismaService
+ * without importing PrismaModule again.
+ */
+@Global()
+@Module({
+  providers: [PrismaService],
+  exports: [PrismaService],
+})
+export class PrismaModule {}
+```
+
+#### api/.env.example
+
+```
+# Copy this file to ".env" in the same folder and fill in your own values.
+# The real .env file is ignored by git. Never commit real credentials.
+
+# PostgreSQL connection string. The ?schema=library part keeps this app's
+# tables in their own "library" schema.
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/postgres?schema=library"
+
+# Secret used to sign and verify login tokens (JWTs). Use a long random string.
+JWT_SECRET="replace-with-a-long-random-string"
+
+# Optional. Port the API listens on (default 3000).
+PORT=3000
+```
+
+<!-- CODE-LISTING-END -->
