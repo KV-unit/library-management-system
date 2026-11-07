@@ -4,6 +4,58 @@ A library's book catalog and a secure API for it, built with **NestJS**, **Prism
 Patrons and librarians are users, books belong to genres, and patrons can review books.
 Anyone can browse the catalog. Only librarians can add, change or remove books and genres.
 
+<!-- FILE-LINKS-START -->
+## Where to find the code
+
+Everything lives in the api folder of this repository (branch main), and docs/postman_collection.json holds the Postman collection. Each link below opens one file as plain text, so the files can be read one by one. The same files are also printed in full in the Source code listing at the end of this README.
+
+### Week 2: genres
+
+- [api/src/genres/genres.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/genres/genres.controller.ts)
+- [api/src/genres/genres.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/genres/genres.service.ts)
+- [api/src/genres/genres.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/genres/genres.module.ts)
+- [api/src/genres/dto/create-genre.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/genres/dto/create-genre.dto.ts)
+- [api/src/genres/dto/update-genre.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/genres/dto/update-genre.dto.ts)
+
+### Week 2: books
+
+- [api/src/books/dto/create-book.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/books/dto/create-book.dto.ts)
+- [api/src/books/dto/update-book.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/books/dto/update-book.dto.ts)
+- [api/src/books/books.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/books/books.controller.ts)
+- [api/src/books/books.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/books/books.service.ts)
+- [api/src/books/books.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/books/books.module.ts)
+
+### Week 2: authentication and authorization
+
+- [api/src/auth/auth.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/auth.controller.ts)
+- [api/src/auth/auth.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/auth.service.ts)
+- [api/src/auth/auth.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/auth.module.ts)
+- [api/src/auth/dto/register.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/dto/register.dto.ts)
+- [api/src/auth/dto/login.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/dto/login.dto.ts)
+- [api/src/auth/jwt.strategy.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/jwt.strategy.ts)
+- [api/src/auth/jwt-auth.guard.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/jwt-auth.guard.ts)
+- [api/src/auth/roles.decorator.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/roles.decorator.ts)
+- [api/src/auth/roles.guard.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/auth/roles.guard.ts)
+
+### Week 2: app setup, profile endpoint and Postman
+
+- [api/src/main.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/main.ts)
+- [api/src/app.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/app.module.ts)
+- [api/src/users/users.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/users/users.controller.ts)
+- [api/src/users/users.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/users/users.service.ts)
+- [api/src/users/users.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/users/users.module.ts)
+- [docs/postman_collection.json](https://raw.githubusercontent.com/KV-unit/library-management-system/main/docs/postman_collection.json)
+
+### Week 1: data layer
+
+- [api/prisma/schema.prisma](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/prisma/schema.prisma)
+- [api/prisma/seed.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/prisma/seed.ts)
+- [api/src/prisma/prisma.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/prisma/prisma.service.ts)
+- [api/src/prisma/prisma.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/prisma/prisma.module.ts)
+- [api/.env.example](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/.env.example)
+
+<!-- FILE-LINKS-END -->
+
 ## Tech stack
 
 | Part | Choice |
