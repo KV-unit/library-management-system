@@ -16,3 +16,5 @@ Thumbs.db
 *.log
 
 *.tsbuildinfo
+
+api/package-lock.json
