@@ -18,7 +18,9 @@ enum Role {
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
-  name      String
+  name      String?
+  // bcrypt hash, never the plain password.
+  password  String
   role      Role     @default(PATRON)
   createdAt DateTime @default(now())
 
@@ -28,18 +30,23 @@ model User {
 model Genre {
   id          Int     @id @default(autoincrement())
   name        String  @unique
+  // URL-friendly version of the name, e.g. "science-fiction".
+  slug        String  @unique
   description String?
 
   books Book[]
 }
 
 model Book {
-  id            Int      @id @default(autoincrement())
-  title         String
-  author        String
-  publishedYear Int?
-  copies        Int      @default(1)
-  createdAt     DateTime @default(now())
+  id              Int      @id @default(autoincrement())
+  title           String
+  author          String
+  isbn            String   @unique
+  description     String?
+  publishedYear   Int?
+  totalCopies     Int      @default(1)
+  availableCopies Int      @default(1)
+  createdAt       DateTime @default(now())
 
   // Each book belongs to exactly one genre, stored as a foreign key.
   genreId Int
