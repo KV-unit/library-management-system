@@ -1,6 +1,14 @@
 import { Link, Route, Routes } from 'react-router-dom';
+import Navbar from './components/Navbar';
+import ProtectedRoute from './components/ProtectedRoute';
+import { AuthProvider } from './context/AuthContext';
+import { ReadingListProvider } from './context/ReadingListContext';
 import BookDetail from './pages/BookDetail';
 import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import ReadingListPage from './pages/ReadingListPage';
+import RegisterPage from './pages/RegisterPage';
+import SpaceBookingPage from './pages/SpaceBookingPage';
 
 function NotFound() {
   return (
@@ -14,21 +22,32 @@ function NotFound() {
   );
 }
 
+// AuthProvider is outside ReadingListProvider because the reading list needs to know who is logged in
+// (every account keeps its own list, and a guest's list is merged into it at login).
 export default function App() {
   return (
-    <>
-      <header className="site-header">
-        <Link to="/" className="site-title">
-          Library Catalog
-        </Link>
-      </header>
-      <main className="container">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/books/:id" element={<BookDetail />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </main>
-    </>
+    <AuthProvider>
+      <ReadingListProvider>
+        <Navbar />
+        <main className="container">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/books/:id" element={<BookDetail />} />
+            <Route path="/reading-list" element={<ReadingListPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route
+              path="/book-space"
+              element={
+                <ProtectedRoute>
+                  <SpaceBookingPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </main>
+      </ReadingListProvider>
+    </AuthProvider>
   );
 }
