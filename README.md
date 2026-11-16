@@ -70,6 +70,7 @@ Everything lives in the api folder of this repository (branch main), and docs/po
 | Rate limiting | `@nestjs/throttler` on the login route |
 | Frontend | React 19 with Vite 6 and plain CSS |
 | Routing | `react-router-dom` v6 (`BrowserRouter`, `Routes`, `Link`, `useParams`) |
+| Client state | React Context with `useReducer`, saved to `localStorage` |
 
 ## Data model
 
@@ -224,6 +225,59 @@ Each link opens one file as plain text.
 - [client/.env](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/.env)
 
 <!-- CLIENT-SECTION-END -->
+
+<!-- WEEK4-SECTION-START -->
+## Client: reading list, login and space booking (Week 4)
+
+The week 3 catalog now has a saved reading list, login and registration, a protected route and a space booking form.
+
+### Pages and routes
+
+| Route | Page | Who can open it |
+| --- | --- | --- |
+| `/` | Catalog with search, genre filter and sort | Everyone |
+| `/books/:id` | One book, with an add-to-list button | Everyone |
+| `/reading-list` | The saved reading list | Everyone |
+| `/login` and `/register` | Controlled forms that call the API | Everyone |
+| `/book-space` | Space booking form | Logged-in users only |
+
+### Reading list state
+
+`client/src/context/ReadingListContext.jsx` holds the list with `useReducer` and shares it through React Context, so the navbar count, every book card and the list page stay in step without passing props down.
+
+- The reducer handles `ADD_BOOK`, `REMOVE_BOOK` and `CLEAR_LIST`. `ADD_BOOK` ignores a book that is already in the list.
+- Every change is saved to `localStorage`, and the list is read back from there when the app starts. A broken or blocked `localStorage` is caught, so the list simply starts empty instead of crashing the page.
+- `ReadingListProvider` wraps all the routes in `App.jsx`.
+- **Stretch: merging a guest list.** A guest's list is saved under `library-reading-list`. A logged-in user gets their own key, `library-reading-list:user:<id>`. When a guest logs in, the guest list is merged into the account's list without duplicates, and the guest copy is removed. Logging out shows an empty guest list, so one person's list never appears for the next person on the same computer.
+
+### Login flow
+
+1. `LoginPage` and `RegisterPage` are controlled forms: each input shows a value from state and `onChange` updates it on every keystroke.
+2. Login posts to `POST /auth/login`. The returned `access_token` and the user are saved in `localStorage` by `AuthContext`, so a refresh keeps you logged in. A token whose `exp` has passed is dropped when the app starts.
+3. `POST /auth/register` returns the new user but no token, so the register page logs in with the same details straight afterwards.
+4. `ProtectedRoute` checks for a token. Without one it redirects to `/login` and remembers the page the visitor wanted, and the login page sends them back there afterwards. With one it renders its children.
+5. If the API answers 401 to a request, the client logs the user out and `ProtectedRoute` sends them to `/login`.
+
+Hiding a route in React is not security on its own: anyone can call the API directly, so the NestJS guards from week 2 still check the token and the role on every request. Keeping the token in `localStorage` is simple and survives a refresh, but any script running on the page could read it, so the page must never inject untrusted HTML.
+
+### Space booking form
+
+`SpaceBookingPage` is a controlled form with a space dropdown and native `date` and `time` inputs, so it needs no date-picker library. `lib/booking.js` checks it before anything is sent: every field is required, the date cannot be in the past, a start time today cannot already have passed, and the end time must be after the start time.
+
+It sends `POST /bookings` with the JWT in an `Authorization: Bearer` header and handles the answers: 409 means the slot is taken, 401 means the session is over, and 404 means the server has no booking route. The week 2 API does not have a bookings endpoint yet, so until one is added the form shows "The booking service is not available on this server yet" instead of pretending the booking worked.
+
+### Where the code is
+
+- [client/src/context/ReadingListContext.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/context/ReadingListContext.jsx)
+- [client/src/context/AuthContext.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/context/AuthContext.jsx)
+- [client/src/App.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/App.jsx)
+- [client/src/pages/LoginPage.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/pages/LoginPage.jsx)
+- [client/src/pages/RegisterPage.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/pages/RegisterPage.jsx)
+- [client/src/components/ProtectedRoute.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/ProtectedRoute.jsx)
+- [client/src/pages/SpaceBookingPage.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/pages/SpaceBookingPage.jsx)
+- [client/src/components/Navbar.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/Navbar.jsx)
+
+<!-- WEEK4-SECTION-END -->
 
 ## How authentication and authorization work
 
