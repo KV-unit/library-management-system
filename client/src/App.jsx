@@ -3,9 +3,12 @@ import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { ReadingListProvider } from './context/ReadingListContext';
+import AdminBookingsPage from './pages/AdminBookingsPage';
+import AdminBorrowRequestsPage from './pages/AdminBorrowRequestsPage';
 import BookDetail from './pages/BookDetail';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
+import MyRequestsPage from './pages/MyRequestsPage';
 import ReadingListPage from './pages/ReadingListPage';
 import RegisterPage from './pages/RegisterPage';
 import SpaceBookingPage from './pages/SpaceBookingPage';
@@ -41,6 +44,30 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <SpaceBookingPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-requests"
+              element={
+                <ProtectedRoute>
+                  <MyRequestsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/borrow-requests"
+              element={
+                <ProtectedRoute role="LIBRARIAN">
+                  <AdminBorrowRequestsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/bookings"
+              element={
+                <ProtectedRoute role="LIBRARIAN">
+                  <AdminBookingsPage />
                 </ProtectedRoute>
               }
             />
