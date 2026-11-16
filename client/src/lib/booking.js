@@ -1,12 +1,3 @@
-// The spaces a patron can book. The dropdown on the booking page is built from this list.
-export const SPACES = [
-  { id: 1, name: 'Study Room A', capacity: 4 },
-  { id: 2, name: 'Study Room B', capacity: 6 },
-  { id: 3, name: 'Quiet Reading Hall', capacity: 20 },
-  { id: 4, name: 'Computer Lab', capacity: 12 },
-  { id: 5, name: 'Group Meeting Room', capacity: 10 },
-];
-
 const pad = (n) => String(n).padStart(2, '0');
 
 // Today's date in the visitor's own time zone as YYYY-MM-DD (toISOString would use UTC).

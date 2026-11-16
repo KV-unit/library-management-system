@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { HttpError, apiRequest, friendlyMessage } from '../lib/api';
-import { SPACES, todayString, validateBooking } from '../lib/booking';
+import { todayString, validateBooking } from '../lib/booking';
 
 const EMPTY = { spaceId: '', date: '', startTime: '', endTime: '' };
 
 // A controlled form with a space dropdown and native date and time inputs. The browser provides the
-// pickers, so no extra library is needed. It sits behind <ProtectedRoute>, so a token always exists.
+// pickers, so no extra library is needed. The spaces come from GET /spaces. It sits behind
+// <ProtectedRoute>, so a token always exists.
 export default function SpaceBookingPage() {
   const { token, user, logout } = useAuth();
   const [values, setValues] = useState(EMPTY);
@@ -14,6 +15,25 @@ export default function SpaceBookingPage() {
   const [submitError, setSubmitError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState(null);
+  const [spaces, setSpaces] = useState([]);
+  const [spacesStatus, setSpacesStatus] = useState('loading'); // 'loading' | 'error' | 'ready'
+  const [attempt, setAttempt] = useState(0);
+
+  // Load the bookable spaces once (and again when "Try again" is pressed).
+  useEffect(() => {
+    const controller = new AbortController();
+    setSpacesStatus('loading');
+    apiRequest('/spaces', { signal: controller.signal })
+      .then((list) => {
+        setSpaces(list);
+        setSpacesStatus('ready');
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setSpacesStatus('error');
+      });
+    return () => controller.abort();
+  }, [attempt]);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -44,7 +64,8 @@ export default function SpaceBookingPage() {
       }
       if (err instanceof HttpError && err.status === 409) {
         setSubmitError('That space is already booked at that time. Pick another time or space.');
-      } else if (err instanceof HttpError && err.status === 404) {
+      } else if (err instanceof HttpError && err.status === 404 && err.message.startsWith('Cannot ')) {
+        // Nest's own "Cannot POST /bookings" means this server has no booking route at all.
         setSubmitError('The booking service is not available on this server yet.');
       } else {
         setSubmitError(friendlyMessage(err));
@@ -55,7 +76,7 @@ export default function SpaceBookingPage() {
   }
 
   if (confirmed) {
-    const space = SPACES.find((s) => String(s.id) === confirmed.spaceId);
+    const space = spaces.find((s) => String(s.id) === confirmed.spaceId);
     return (
       <section className="form-card">
         <div className="state" role="status">
@@ -76,12 +97,27 @@ export default function SpaceBookingPage() {
       <h1>Book a space</h1>
       <p className="lead">Signed in as {user.name || user.email}.</p>
 
-      <form onSubmit={handleSubmit} noValidate>
+      {spacesStatus === 'loading' && (
+        <p role="status" className="lead">
+          Loading spaces...
+        </p>
+      )}
+      {spacesStatus === 'error' && (
+        <div className="state state--error" role="alert">
+          <h2>Spaces unavailable</h2>
+          <p>Could not load the list of spaces. Check that the API is running.</p>
+          <button type="button" className="button" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </button>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} noValidate hidden={spacesStatus !== 'ready'}>
         <div className="form-field">
           <label htmlFor="booking-space">Space</label>
           <select id="booking-space" name="spaceId" value={values.spaceId} onChange={handleChange} aria-invalid={Boolean(errors.spaceId)}>
             <option value="">Choose a space</option>
-            {SPACES.map((space) => (
+            {spaces.map((space) => (
               <option key={space.id} value={space.id}>
                 {space.name} (up to {space.capacity})
               </option>
