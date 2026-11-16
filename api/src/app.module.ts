@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { BooksModule } from './books/books.module';
+import { BorrowRequestsModule } from './borrow-requests/borrow-requests.module';
 import { GenresModule } from './genres/genres.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
@@ -18,6 +19,7 @@ import { UsersModule } from './users/users.module';
     GenresModule,
     BooksModule,
     BookingsModule,
+    BorrowRequestsModule,
     UsersModule,
   ],
   controllers: [AppController],
