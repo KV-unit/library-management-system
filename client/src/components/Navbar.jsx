@@ -29,6 +29,8 @@ export default function Navbar() {
             </span>
           </Link>
           <Link to="/book-space">Book a space</Link>
+          {isLoggedIn && <Link to="/my-requests">My requests</Link>}
+          {isLoggedIn && user.role === 'LIBRARIAN' && <Link to="/admin/borrow-requests">Admin</Link>}
           {isLoggedIn ? (
             <>
               <span className="navbar__user">{user.name || user.email}</span>
