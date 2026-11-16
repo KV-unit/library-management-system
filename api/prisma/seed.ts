@@ -16,6 +16,15 @@ const genres = [
   { name: 'Business & Productivity', slug: 'business-and-productivity', description: 'Work, habits, strategy and decision making' },
 ];
 
+// Spaces that patrons can book (the booking form loads this list from GET /spaces).
+const spaces = [
+  { name: 'Study Room A', capacity: 4 },
+  { name: 'Study Room B', capacity: 6 },
+  { name: 'Quiet Reading Hall', capacity: 20 },
+  { name: 'Computer Lab', capacity: 12 },
+  { name: 'Group Meeting Room', capacity: 10 },
+];
+
 // 20 books, 4 in each genre. `genre` is the genre name, looked up below.
 // The ISBNs are made-up sample numbers with a valid check digit, not real editions.
 const books = [
@@ -99,13 +108,19 @@ async function main() {
     });
   }
 
-  const [g, b, u, r] = await Promise.all([
+  // Spaces: upsert by the unique name, so running the seed again changes nothing.
+  for (const space of spaces) {
+    await prisma.space.upsert({ where: { name: space.name }, update: { capacity: space.capacity }, create: space });
+  }
+
+  const [g, b, u, r, sp] = await Promise.all([
     prisma.genre.count(),
     prisma.book.count(),
     prisma.user.count(),
     prisma.review.count(),
+    prisma.space.count(),
   ]);
-  console.log(`Seeded: ${g} genres, ${b} books, ${u} users, ${r} reviews`);
+  console.log(`Seeded: ${g} genres, ${b} books, ${u} users, ${r} reviews, ${sp} spaces`);
   console.log(`Sample logins (password ${SAMPLE_PASSWORD}): librarian@example.com, amani@example.com`);
 }
 
