@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { BorrowStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TRANSACTION_TIMEOUTS } from '../prisma/transaction-options';
 import { CreateBorrowRequestDto } from './dto/create-borrow-request.dto';
 import { UpdateBorrowRequestDto } from './dto/update-borrow-request.dto';
 import { calculateFine } from './fine-calculator';
@@ -74,13 +75,17 @@ export class BorrowRequestsService {
             throw new ConflictException(`You already have an open request for: ${titles}`);
           }
 
-          const rows: BorrowRequestRow[] = [];
-          for (const bookId of bookIds) {
-            rows.push(await tx.borrowRequest.create({ data: { userId, bookId }, include: INCLUDE }));
-          }
-          return rows;
+          // Two queries instead of one per book: save them all, then read them back with their book and user.
+          // No PENDING or APPROVED request existed for these books (checked above, inside this transaction),
+          // so the PENDING ones found now are exactly the ones just saved.
+          await tx.borrowRequest.createMany({ data: bookIds.map((bookId) => ({ userId, bookId })) });
+          return tx.borrowRequest.findMany({
+            where: { userId, bookId: { in: bookIds }, status: BorrowStatus.PENDING },
+            include: INCLUDE,
+            orderBy: { id: 'asc' },
+          });
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, ...TRANSACTION_TIMEOUTS },
       );
       return created.map(toResponse);
     } catch (error) {
@@ -146,6 +151,6 @@ export class BorrowRequestsService {
 
       const updated = await tx.borrowRequest.update({ where: { id }, data, include: INCLUDE });
       return toResponse(updated);
-    });
+    }, TRANSACTION_TIMEOUTS);
   }
 }

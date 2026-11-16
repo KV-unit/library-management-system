@@ -8,10 +8,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 describe('BorrowRequestsService', () => {
   const prisma = {
     book: { findMany: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-    borrowRequest: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    borrowRequest: { findMany: jest.fn(), findUnique: jest.fn(), createMany: jest.fn(), update: jest.fn() },
     $transaction: jest.fn(),
   };
   const service = new BorrowRequestsService(prisma as unknown as PrismaService);
+  let openRequests: unknown[] = [];
 
   const row = (overrides: Record<string, unknown> = {}) => ({
     id: 4,
@@ -33,10 +34,14 @@ describe('BorrowRequestsService', () => {
     // Runs the callback straight away with the same fake client, like an interactive transaction.
     prisma.$transaction.mockImplementation((callback: (tx: unknown) => Promise<unknown>) => callback(prisma));
     prisma.book.findMany.mockResolvedValue([{ id: 7 }, { id: 8 }]);
-    prisma.borrowRequest.findMany.mockResolvedValue([]);
-    prisma.borrowRequest.create.mockImplementation(({ data }: { data: { bookId: number } }) =>
-      Promise.resolve(row({ id: 100 + data.bookId, bookId: data.bookId })),
+    // The first findMany in create() looks for open requests (a status filter with `in`); the second reads back the new ones.
+    openRequests = [];
+    prisma.borrowRequest.findMany.mockImplementation(({ where }: { where: { bookId?: { in: number[] }; status?: unknown } }) =>
+      where.status && typeof where.status === 'object'
+        ? Promise.resolve(openRequests)
+        : Promise.resolve((where.bookId?.in ?? []).map((bookId) => row({ id: 100 + bookId, bookId }))),
     );
+    prisma.borrowRequest.createMany.mockResolvedValue({ count: 0 });
     prisma.book.updateMany.mockResolvedValue({ count: 1 });
     prisma.book.update.mockResolvedValue({});
     prisma.borrowRequest.update.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve(row(data)));
@@ -45,9 +50,13 @@ describe('BorrowRequestsService', () => {
   describe('create', () => {
     it('creates one PENDING request for each book on the reading list, for the logged-in user', async () => {
       const result = await service.create(5, { bookIds: [7, 8] });
-      expect(prisma.borrowRequest.create).toHaveBeenCalledTimes(2);
-      expect(prisma.borrowRequest.create).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 5, bookId: 7 } }));
-      expect(prisma.borrowRequest.create).toHaveBeenCalledWith(expect.objectContaining({ data: { userId: 5, bookId: 8 } }));
+      expect(prisma.borrowRequest.createMany).toHaveBeenCalledTimes(1);
+      expect(prisma.borrowRequest.createMany).toHaveBeenCalledWith({
+        data: [
+          { userId: 5, bookId: 7 },
+          { userId: 5, bookId: 8 },
+        ],
+      });
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({ status: 'PENDING', fineAmount: 0 });
     });
@@ -55,24 +64,30 @@ describe('BorrowRequestsService', () => {
     it('ignores a book id that is listed twice', async () => {
       prisma.book.findMany.mockResolvedValue([{ id: 7 }]);
       await service.create(5, { bookIds: [7, 7] });
-      expect(prisma.borrowRequest.create).toHaveBeenCalledTimes(1);
+      expect(prisma.borrowRequest.createMany).toHaveBeenCalledWith({ data: [{ userId: 5, bookId: 7 }] });
+    });
+
+    it('gives the transaction extra time, so it also works over a slow connection', async () => {
+      prisma.book.findMany.mockResolvedValue([{ id: 7 }]);
+      await service.create(5, { bookIds: [7] });
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ timeout: 30000, maxWait: 10000 }));
     });
 
     it('answers 404 and creates nothing when a book does not exist', async () => {
       prisma.book.findMany.mockResolvedValue([{ id: 7 }]);
       await expect(service.create(5, { bookIds: [7, 999] })).rejects.toBeInstanceOf(NotFoundException);
-      expect(prisma.borrowRequest.create).not.toHaveBeenCalled();
+      expect(prisma.borrowRequest.createMany).not.toHaveBeenCalled();
     });
 
     it('answers 409 when the patron already has an open request for one of the books', async () => {
-      prisma.borrowRequest.findMany.mockResolvedValue([{ book: { title: 'Dune' } }]);
+      openRequests = [{ book: { title: 'Dune' } }];
       await expect(service.create(5, { bookIds: [7, 8] })).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.borrowRequest.create).not.toHaveBeenCalled();
+      expect(prisma.borrowRequest.createMany).not.toHaveBeenCalled();
     });
 
     it('answers 409 when the database stops one of two simultaneous requests (P2034)', async () => {
       prisma.book.findMany.mockResolvedValue([{ id: 7 }]);
-      prisma.borrowRequest.create.mockRejectedValue(
+      prisma.borrowRequest.createMany.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('write conflict', { code: 'P2034', clientVersion: 'test' }),
       );
       await expect(service.create(5, { bookIds: [7] })).rejects.toBeInstanceOf(ConflictException);

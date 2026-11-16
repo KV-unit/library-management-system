@@ -62,9 +62,10 @@ describe('BookingsService', () => {
 
     it('runs the check and the insert in a serializable transaction', async () => {
       await service.create(5, dto);
-      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
+      expect(prisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable }),
+      );
     });
 
     it('answers 409 when the slot overlaps an existing booking, and saves nothing', async () => {

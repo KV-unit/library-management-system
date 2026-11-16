@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { BookingStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TRANSACTION_TIMEOUTS } from '../prisma/transaction-options';
 import { CreateBookingDto } from './dto/create-booking.dto';
 
 // The user that JwtStrategy puts on req.user.
@@ -86,7 +87,7 @@ export class BookingsService {
             include: { space: true },
           });
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, ...TRANSACTION_TIMEOUTS },
       );
       return toResponse(created);
     } catch (error) {
