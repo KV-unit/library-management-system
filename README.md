@@ -152,7 +152,7 @@ The seed creates two logins you can use straight away (password `Password123!`):
 | `POST /books`, `PATCH /books/:id`, `DELETE /books/:id` | LIBRARIAN | Create, update, remove a book |
 | `GET /spaces` | anyone | List the spaces that can be booked |
 | `POST /bookings` | any logged-in user | Book a space for a date and time. 409 if it overlaps an existing booking |
-| `GET /bookings` | any logged-in user | Your bookings (a librarian sees everyone's) |
+| `GET /bookings` | any logged-in user | Your own bookings |
 | `DELETE /bookings/:id` | the owner or a LIBRARIAN | Cancel a booking (its status becomes CANCELLED) |
 
 `GET /books` returns `{ data, meta: { total, page, limit, totalPages } }`. For example,
@@ -170,11 +170,50 @@ Patrons can book a room or area for a time slot. The data lives in two new table
 - **Overlaps are rejected with 409.** Two slots overlap when each one starts before the other ends, so the API looks for a confirmed booking of the same space and date that starts before the new end and ends after the new start. A booking that ends at 10:00 does not clash with one that starts at 10:00.
 - **No double booking under load.** Checking and saving are two steps, so two simultaneous requests could both pass the check. The check and the insert therefore run inside one `SERIALIZABLE` database transaction, and if the database stops one of the two requests it is also answered with 409.
 - **Other errors:** 400 for a bad date or time, an end that is not after the start, or a date in the past; 401 without a token; 404 for an unknown space or booking.
-- **`GET /bookings`** lists the caller's own bookings (a librarian sees all of them), and **`DELETE /bookings/:id`** cancels one by setting its status to `CANCELLED`, which frees the slot. Only the owner or a librarian may cancel, otherwise 403. Keeping the row instead of deleting it leaves a record of what happened.
+- **`GET /bookings`** lists the caller's own bookings (librarians list everyone's with `GET /bookings/all`), and **`DELETE /bookings/:id`** cancels one by setting its status to `CANCELLED`, which frees the slot. Only the owner or a librarian may cancel, otherwise 403. Keeping the row instead of deleting it leaves a record of what happened.
 - **`GET /spaces`** is public. The booking form on the client fills its dropdown from it.
 - Date and time are stored as a calendar date plus two `HH:MM` strings instead of timestamps. The library has no time zone concerns for a room slot, and zero-padded 24-hour strings sort and compare correctly as plain text.
 
 <!-- BOOKINGS-SECTION-END -->
+
+<!-- BORROW-SECTION-START -->
+### Borrow requests, fines and admin routes (week 5)
+
+A patron turns the books on their reading list into borrow requests, and a librarian answers them. The data lives in the `BorrowRequest` table (one row per book requested) with a `BorrowStatus` of `PENDING`, `APPROVED`, `REJECTED` or `RETURNED`.
+
+| Method and path | Who can call it | What it does |
+| --- | --- | --- |
+| `POST /borrow-requests` | any logged-in user | Body `{ bookIds: [1, 2] }`. Creates one `PENDING` request per book for the logged-in user |
+| `GET /borrow-requests/mine` | any logged-in user | The caller's own requests |
+| `GET /borrow-requests?status=PENDING` | LIBRARIAN | Every request, optionally for one status |
+| `PATCH /borrow-requests/:id` | LIBRARIAN | Body `{ status }`. Approve, reject or mark returned |
+| `GET /bookings/all?spaceId=&date=` | LIBRARIAN | Every space booking, optionally for one space and day |
+
+**Status changes.** A request can only move forward: `PENDING` to `APPROVED` or `REJECTED`, and `APPROVED` to `RETURNED`. Anything else, such as returning a request that was never approved, is answered with 409.
+
+- **Approving** takes one copy off the shelf and sets a due date 14 days away. The copy is taken with `updateMany` and the condition `availableCopies > 0`, which the database applies as one step, so two librarians approving the last copy cannot both succeed. If no copy is left the answer is 409.
+- **Returning** puts the copy back and works out `fineAmount` with `calculateFine(dueDate, returnDate, ratePerDay)`, using a rate of 0.50 per day. Approving, returning and saving the request all happen in one transaction, so the copy count and the request never disagree.
+- **Creating** checks that every book exists (404 if not) and that the patron has no open request for any of them (409 if they do). The requests are saved together or not at all.
+- **Admin routes** (`GET` and `PATCH /borrow-requests`, `GET /bookings/all`) use `@Roles(Role.LIBRARIAN)` with `RolesGuard`, so a patron gets 403 even if they call the API directly.
+- A book that has borrow requests cannot be deleted (409), so the loan history is never lost.
+
+**Why the fine is a pure function.** `calculateFine` in `fine-calculator.ts` takes two dates and a rate and returns a number. It reads no clock and touches no database, so it is easy to test and the same inputs always give the same fine. It counts whole calendar days late, so returning on the due date at any time of day is on time, and rounds the result to the nearest cent. `fine-calculator.spec.ts` covers on-time, late, month boundaries, rounding and invalid input.
+
+Files:
+
+- [api/prisma/schema.prisma](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/prisma/schema.prisma)
+- [api/src/borrow-requests/borrow-requests.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/borrow-requests.controller.ts)
+- [api/src/borrow-requests/borrow-requests.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/borrow-requests.service.ts)
+- [api/src/borrow-requests/borrow-requests.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/borrow-requests.module.ts)
+- [api/src/borrow-requests/dto/create-borrow-request.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/dto/create-borrow-request.dto.ts)
+- [api/src/borrow-requests/fine-calculator.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/fine-calculator.ts)
+- [api/src/borrow-requests/fine-calculator.spec.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/borrow-requests/fine-calculator.spec.ts)
+- [api/src/bookings/bookings.controller.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/bookings/bookings.controller.ts)
+- [api/src/bookings/bookings.service.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/bookings/bookings.service.ts)
+- [api/src/bookings/bookings.module.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/bookings/bookings.module.ts)
+- [api/src/bookings/dto/create-booking.dto.ts](https://raw.githubusercontent.com/KV-unit/library-management-system/main/api/src/bookings/dto/create-booking.dto.ts)
+
+<!-- BORROW-SECTION-END -->
 
 A ready-made request for every endpoint is in [`docs/postman_collection.json`](docs/postman_collection.json).
 Import it into Postman, run `Login (librarian)` first, and the token is saved for the other requests.
@@ -297,6 +336,17 @@ It sends `POST /bookings` with the JWT in an `Authorization: Bearer` header and 
 - [client/src/components/Navbar.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/Navbar.jsx)
 
 <!-- WEEK4-SECTION-END -->
+
+<!-- WEEK5-CLIENT-START -->
+## Client: borrow requests and admin pages (Week 5)
+
+- **Requesting books.** A logged-in patron presses "Request to borrow" on the reading list, which sends the book ids to `POST /borrow-requests`. The requested books leave the reading list. If the server refuses (for example a request for that book is already open), its message is shown and the list is left alone. Someone who is not logged in sees a link to log in instead.
+- **My requests** (`/my-requests`) shows the patron's own requests with their status, due date and any fine.
+- **Admin pages (stretch)** are for librarians. `/admin/borrow-requests` lists the requests with a status filter and Approve, Reject and Mark returned buttons, and shows the fine for late returns. `/admin/bookings` lists every space booking with a space filter and a day filter, and a button to cancel a booking. A server error on one row, such as "No copies of that book are available right now", appears in that row.
+- **`ProtectedRoute` takes an optional `role`.** `<ProtectedRoute role="LIBRARIAN">` sends a logged-out visitor to `/login` as before, and shows "Not allowed" to a logged-in patron. This only changes what the screen shows. The API checks the role itself, so a patron calling the admin routes directly still gets 403.
+- **`useApiData`** loads a path with the user's token, cancels a request that is still running when a filter changes so an old answer cannot replace a newer one, and logs the user out when the API answers 401.
+
+<!-- WEEK5-CLIENT-END -->
 
 ## How authentication and authorization work
 
