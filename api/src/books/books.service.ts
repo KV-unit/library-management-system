@@ -80,7 +80,15 @@ export class BooksService {
 
   async remove(id: number) {
     await this.findOne(id);
-    return this.prisma.book.delete({ where: { id } });
+    try {
+      return await this.prisma.book.delete({ where: { id } });
+    } catch (error) {
+      // P2003: another table still points at this book (borrow requests keep the loan history).
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException('That book has borrow requests and cannot be deleted');
+      }
+      throw error;
+    }
   }
 
   private async assertGenreExists(genreId: number) {
