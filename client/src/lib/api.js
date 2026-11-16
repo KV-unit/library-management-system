@@ -27,3 +27,22 @@ export function friendlyMessage(error) {
   if (error instanceof HttpError) return error.message;
   return `Could not reach the library server at ${API_URL}. Check that the API is running.`;
 }
+
+// Sends a JSON request to the API and returns the parsed answer (null when the body is empty).
+// Pass `token` to send it as "Authorization: Bearer <token>". Any non-2xx answer throws an
+// HttpError carrying the status and the message Nest sent back.
+export async function apiRequest(path, { method = 'GET', body, token, signal } = {}) {
+  const headers = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) throw new HttpError(await readError(res), res.status);
+  if (res.status === 204) return null;
+  return res.json();
+}
