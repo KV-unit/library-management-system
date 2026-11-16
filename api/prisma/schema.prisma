@@ -15,6 +15,11 @@ enum Role {
   LIBRARIAN
 }
 
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
@@ -24,7 +29,8 @@ model User {
   role      Role     @default(PATRON)
   createdAt DateTime @default(now())
 
-  reviews Review[]
+  reviews  Review[]
+  bookings Booking[]
 }
 
 model Genre {
@@ -73,5 +79,36 @@ model Review {
 
   // One review per user per book.
   @@unique([bookId, userId])
+  @@index([userId])
+}
+
+// A room or area that can be booked, e.g. "Study Room A".
+model Space {
+  id       Int    @id @default(autoincrement())
+  name     String @unique
+  capacity Int
+
+  bookings Booking[]
+}
+
+// A patron's reservation of a space for one time slot on one day.
+// startTime and endTime are 24-hour "HH:MM" strings (zero-padded, so they sort correctly as text).
+model Booking {
+  id        Int           @id @default(autoincrement())
+  date      DateTime      @db.Date
+  startTime String
+  endTime   String
+  // Cancelling keeps the row (status CANCELLED) so there is a record of it, and frees the slot.
+  status    BookingStatus @default(CONFIRMED)
+  createdAt DateTime      @default(now())
+
+  spaceId Int
+  space   Space @relation(fields: [spaceId], references: [id])
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The conflict check looks up bookings by space and date.
+  @@index([spaceId, date])
   @@index([userId])
 }
