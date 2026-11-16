@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import ReadingListButton from '../components/ReadingListButton';
 import { API_URL, HttpError, friendlyMessage, readError } from '../lib/api';
 
 // The page for one book at /books/:id. It reads the id from the URL with useParams()
@@ -92,6 +93,8 @@ export default function BookDetail() {
                 </dd>
               </div>
             </dl>
+
+            <ReadingListButton book={book} />
           </div>
         </article>
       )}

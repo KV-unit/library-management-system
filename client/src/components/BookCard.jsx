@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import ReadingListButton from './ReadingListButton';
 
 // "Dune Messiah" -> "DM". Used as a stand-in for a cover image.
 function initials(title) {
@@ -29,6 +30,7 @@ export default function BookCard({ book }) {
           </span>
         </div>
       </Link>
+      <ReadingListButton book={book} />
     </li>
   );
 }
