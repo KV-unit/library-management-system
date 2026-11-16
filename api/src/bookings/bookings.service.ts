@@ -98,15 +98,33 @@ export class BookingsService {
     }
   }
 
-  // GET /bookings: a patron sees their own bookings, a librarian sees everyone's.
-  async findAll(user: AuthUser) {
-    const where: Prisma.BookingWhereInput = user.role === Role.LIBRARIAN ? {} : { userId: user.userId };
+  // GET /bookings: the logged-in user's own bookings.
+  async findMine(userId: number) {
     const rows = await this.prisma.booking.findMany({
-      where,
+      where: { userId },
       include: { space: true },
       orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
     });
     return rows.map(toResponse);
+  }
+
+  // GET /bookings/all (librarians): everyone's bookings, optionally for one space and/or one day.
+  async findAll(filters: { spaceId?: number; date?: string }) {
+    const where: Prisma.BookingWhereInput = {};
+    if (filters.spaceId !== undefined) where.spaceId = filters.spaceId;
+    if (filters.date !== undefined) {
+      const date = new Date(`${filters.date}T00:00:00.000Z`);
+      if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== filters.date) {
+        throw new BadRequestException('date must be a real date written as YYYY-MM-DD');
+      }
+      where.date = date;
+    }
+    const rows = await this.prisma.booking.findMany({
+      where,
+      include: { space: true, user: { select: { id: true, email: true, name: true } } },
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((row) => ({ ...toResponse(row), user: row.user }));
   }
 
   // DELETE /bookings/:id: marks the booking CANCELLED, which frees the slot. Owner or librarian only.

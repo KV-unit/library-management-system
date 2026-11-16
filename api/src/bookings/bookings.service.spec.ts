@@ -99,17 +99,31 @@ describe('BookingsService', () => {
     });
   });
 
-  describe('findAll', () => {
-    it('shows a patron only their own bookings', async () => {
+  describe('findMine', () => {
+    it('lists only the logged-in user\'s own bookings', async () => {
       prisma.booking.findMany.mockResolvedValue([]);
-      await service.findAll(patron);
+      await service.findMine(5);
       expect(prisma.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 5 } }));
     });
+  });
 
-    it('shows a librarian every booking', async () => {
+  describe('findAll (admin)', () => {
+    it('lists every booking when no filter is given', async () => {
       prisma.booking.findMany.mockResolvedValue([]);
-      await service.findAll(librarian);
+      await service.findAll({});
       expect(prisma.booking.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+    });
+
+    it('filters by space and by day', async () => {
+      prisma.booking.findMany.mockResolvedValue([]);
+      await service.findAll({ spaceId: 2, date: '2999-01-15' });
+      expect(prisma.booking.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { spaceId: 2, date: new Date('2999-01-15T00:00:00.000Z') } }),
+      );
+    });
+
+    it('answers 400 for a date that is not real', async () => {
+      await expect(service.findAll({ date: '2999-02-31' })).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
