@@ -150,12 +150,31 @@ The seed creates two logins you can use straight away (password `Password123!`):
 | `GET /books` | anyone | List books. Query: `genreId`, `search` (title or author), `page`, `limit` |
 | `GET /books/:id` | anyone | One book with its genre |
 | `POST /books`, `PATCH /books/:id`, `DELETE /books/:id` | LIBRARIAN | Create, update, remove a book |
+| `GET /spaces` | anyone | List the spaces that can be booked |
+| `POST /bookings` | any logged-in user | Book a space for a date and time. 409 if it overlaps an existing booking |
+| `GET /bookings` | any logged-in user | Your bookings (a librarian sees everyone's) |
+| `DELETE /bookings/:id` | the owner or a LIBRARIAN | Cancel a booking (its status becomes CANCELLED) |
 
 `GET /books` returns `{ data, meta: { total, page, limit, totalPages } }`. For example,
 `GET /books?genreId=2&search=dune&page=1&limit=5`. `page` starts at 1 and `limit` is capped at 100.
 
 Send the token on protected routes as `Authorization: Bearer <access_token>`.
 Status codes: 400 invalid data, 401 missing or bad token, 403 wrong role, 404 not found, 409 duplicate or genre still in use.
+
+<!-- BOOKINGS-SECTION-START -->
+### Space bookings (week 4)
+
+Patrons can book a room or area for a time slot. The data lives in two new tables: `Space` (name and capacity, seeded with five spaces) and `Booking` (one slot on one day, with a status of `CONFIRMED` or `CANCELLED`).
+
+- **`POST /bookings`** takes `{ spaceId, date, startTime, endTime }` with the date as `YYYY-MM-DD` and the times as 24-hour `HH:MM`. The booking always belongs to the logged-in user, taken from the JWT and never from the request body, so nobody can book on someone else's behalf.
+- **Overlaps are rejected with 409.** Two slots overlap when each one starts before the other ends, so the API looks for a confirmed booking of the same space and date that starts before the new end and ends after the new start. A booking that ends at 10:00 does not clash with one that starts at 10:00.
+- **No double booking under load.** Checking and saving are two steps, so two simultaneous requests could both pass the check. The check and the insert therefore run inside one `SERIALIZABLE` database transaction, and if the database stops one of the two requests it is also answered with 409.
+- **Other errors:** 400 for a bad date or time, an end that is not after the start, or a date in the past; 401 without a token; 404 for an unknown space or booking.
+- **`GET /bookings`** lists the caller's own bookings (a librarian sees all of them), and **`DELETE /bookings/:id`** cancels one by setting its status to `CANCELLED`, which frees the slot. Only the owner or a librarian may cancel, otherwise 403. Keeping the row instead of deleting it leaves a record of what happened.
+- **`GET /spaces`** is public. The booking form on the client fills its dropdown from it.
+- Date and time are stored as a calendar date plus two `HH:MM` strings instead of timestamps. The library has no time zone concerns for a room slot, and zero-padded 24-hour strings sort and compare correctly as plain text.
+
+<!-- BOOKINGS-SECTION-END -->
 
 A ready-made request for every endpoint is in [`docs/postman_collection.json`](docs/postman_collection.json).
 Import it into Postman, run `Login (librarian)` first, and the token is saved for the other requests.
@@ -264,7 +283,7 @@ Hiding a route in React is not security on its own: anyone can call the API dire
 
 `SpaceBookingPage` is a controlled form with a space dropdown and native `date` and `time` inputs, so it needs no date-picker library. `lib/booking.js` checks it before anything is sent: every field is required, the date cannot be in the past, a start time today cannot already have passed, and the end time must be after the start time.
 
-It sends `POST /bookings` with the JWT in an `Authorization: Bearer` header and handles the answers: 409 means the slot is taken, 401 means the session is over, and 404 means the server has no booking route. The week 2 API does not have a bookings endpoint yet, so until one is added the form shows "The booking service is not available on this server yet" instead of pretending the booking worked.
+It sends `POST /bookings` with the JWT in an `Authorization: Bearer` header and handles the answers: 409 means the slot is taken, 401 means the session is over, and 404 means the server has no booking route. The space list comes from `GET /spaces`, and the server does the real checking (see Space bookings under API).
 
 ### Where the code is
 
