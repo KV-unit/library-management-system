@@ -18,3 +18,7 @@ Thumbs.db
 *.tsbuildinfo
 
 api/package-lock.json
+
+# client (week 3)
+!client/.env
+client/package-lock.json
