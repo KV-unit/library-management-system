@@ -68,6 +68,8 @@ Everything lives in the api folder of this repository (branch main), and docs/po
 | Authentication | JWT (`@nestjs/jwt`, `passport-jwt`), passwords hashed with `bcrypt` |
 | Authorization | `@Roles()` decorator and a `RolesGuard` |
 | Rate limiting | `@nestjs/throttler` on the login route |
+| Frontend | React 19 with Vite 6 and plain CSS |
+| Routing | `react-router-dom` v6 (`BrowserRouter`, `Routes`, `Link`, `useParams`) |
 
 ## Data model
 
@@ -156,6 +158,72 @@ Status codes: 400 invalid data, 401 missing or bad token, 403 wrong role, 404 no
 
 A ready-made request for every endpoint is in [`docs/postman_collection.json`](docs/postman_collection.json).
 Import it into Postman, run `Login (librarian)` first, and the token is saved for the other requests.
+
+<!-- CLIENT-SECTION-START -->
+## Client: catalog browsing and search (Week 3)
+
+A React single-page app in the `client` folder lets patrons browse the catalog, search it, filter by genre and open a book.
+It talks to the NestJS API over HTTP and has no backend of its own.
+
+### Run it
+
+Start the API in one terminal and the client in another:
+
+```bash
+cd api
+npm run start:dev          # API on http://localhost:3000
+
+cd client
+npm install
+npm run dev                # client on http://localhost:5173
+```
+
+The API address comes from `client/.env`:
+
+```
+VITE_API_URL=http://localhost:3000
+```
+
+This file is committed on purpose. It holds only a public address, not a secret, and Vite exposes only variables that start with `VITE_` to the browser.
+
+### What it does
+
+| Feature | Where |
+| --- | --- |
+| Routes: `/` (catalog) and `/books/:id` (one book) | `client/src/App.jsx` |
+| Responsive grid of book cards (1 column on a phone, 4 or more on a desktop) | `BookGrid.jsx`, `BookCard.jsx`, `index.css` |
+| Genre filter, filled from `GET /genres` | `GenreFilter.jsx` |
+| Live search by title or author, debounced by 400 ms | `SearchBar.jsx` |
+| Book detail page using `useParams()` and `GET /books/:id` | `BookDetail.jsx` |
+| Loading, error (with a retry button) and empty states | `BookGrid.jsx`, `BookDetail.jsx` |
+| Stretch: sort by title or author | `SortControl.jsx`, `lib/sort.js` |
+| Stretch: skeleton cards while loading | `SkeletonCard.jsx` |
+
+### Design decisions
+
+- **The filters live in `HomePage`.** `HomePage` holds the search text, the selected genre and the sort order in one place and passes them down. `SearchBar` and `GenreFilter` only report changes, and `BookGrid` only reads the values and fetches. Keeping the state in their common parent means the pieces never need to know about each other.
+- **Debouncing with `setTimeout` and a cleanup.** Every keystroke starts a 400 ms timer in `useEffect`, and the effect's cleanup function cancels the previous timer. The search only reaches the API once the visitor stops typing, so "dune" sends one request instead of four.
+- **Stale answers cannot win.** `BookGrid` creates an `AbortController` for each request and aborts it in the effect cleanup. If the filters change before the first answer arrives, the old request is cancelled, so a slow response can never overwrite a newer one.
+- **`key={book.id}` on every card.** The id is stable and unique, so React keeps the right card for the right book when the list is filtered or re-sorted. An array index would not.
+- **Sorting happens in the browser.** The API returns books ordered by title, and the client asks for up to 100 books at once, which is the API's limit. Sorting by author is therefore done on that list with `localeCompare`. For a much larger catalog the API would need its own sort option and the client would need paging.
+- **Filters survive a trip to a book.** `HomePage` saves the filters in `sessionStorage`, so going back from a book page returns to the same search and genre.
+- **Errors say what happened.** A server message such as "Book 9 not found" is shown as is, and a network failure says the server could not be reached, instead of showing a blank page.
+
+### Where the client code is
+
+Each link opens one file as plain text.
+
+- [client/src/main.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/main.jsx)
+- [client/src/App.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/App.jsx)
+- [client/src/pages/HomePage.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/pages/HomePage.jsx)
+- [client/src/pages/BookDetail.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/pages/BookDetail.jsx)
+- [client/src/components/BookGrid.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/BookGrid.jsx)
+- [client/src/components/BookCard.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/BookCard.jsx)
+- [client/src/components/SearchBar.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/SearchBar.jsx)
+- [client/src/components/GenreFilter.jsx](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/src/components/GenreFilter.jsx)
+- [client/.env](https://raw.githubusercontent.com/KV-unit/library-management-system/main/client/.env)
+
+<!-- CLIENT-SECTION-END -->
 
 ## How authentication and authorization work
 
